@@ -21,20 +21,14 @@ export interface Product {
   specs: ProductSpecs;
 }
 
-export interface ProductSnapshot {
-  timestamp: string;
-  products: Product[];
-}
-
 export interface WatcherChange {
   type: "added" | "removed" | "price_changed";
   product: Product;
   previousPrice?: number;
 }
 
-export interface WatcherResult {
-  timestamp: string;
-  changes: WatcherChange[];
-  currentProducts: Product[];
-  isFirstRun: boolean;
+export interface AppState {
+  lastFetchTimestamp: string;
+  products: Product[];
+  lastChanges: WatcherChange[];
 }

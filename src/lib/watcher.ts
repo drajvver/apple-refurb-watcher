@@ -1,9 +1,8 @@
-import * as fs from "fs";
-import * as path from "path";
-import { Product, ProductSnapshot, WatcherChange, WatcherResult } from "../types/product";
-import { STATE_DIR, STATE_FILE } from "../config";
+import fs from "fs";
+import { Product, WatcherChange, AppState } from "./types";
+import { DATA_DIR, STATE_FILE } from "./config";
 
-function loadState(): ProductSnapshot | null {
+export function loadState(): AppState | null {
   try {
     if (!fs.existsSync(STATE_FILE)) return null;
     const raw = fs.readFileSync(STATE_FILE, "utf-8");
@@ -13,9 +12,9 @@ function loadState(): ProductSnapshot | null {
   }
 }
 
-function saveState(snapshot: ProductSnapshot): void {
-  fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify(snapshot, null, 2), "utf-8");
+function saveState(state: AppState): void {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
 }
 
 function compareProducts(
@@ -53,7 +52,12 @@ function compareProducts(
 
 export async function fetchAndDetectChanges(
   fetchFn: () => Promise<Product[]>
-): Promise<WatcherResult> {
+): Promise<{
+  timestamp: string;
+  changes: WatcherChange[];
+  currentProducts: Product[];
+  isFirstRun: boolean;
+}> {
   const currentProducts = await fetchFn();
   const timestamp = new Date().toISOString();
 
@@ -63,7 +67,11 @@ export async function fetchAndDetectChanges(
     ? compareProducts(previous.products, currentProducts)
     : [];
 
-  saveState({ timestamp, products: currentProducts });
+  saveState({
+    lastFetchTimestamp: timestamp,
+    products: currentProducts,
+    lastChanges: changes,
+  });
 
   return { timestamp, changes, currentProducts, isFirstRun };
 }

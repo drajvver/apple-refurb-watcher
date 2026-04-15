@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
-import { Product, ProductSpecs } from "../types/product";
-import { REFURB_MAC_URL, BASE_URL } from "../config";
+import { Product, ProductSpecs } from "./types";
+import { REFURB_MAC_URL, BASE_URL } from "./config";
 
 interface RawDimensions {
   dimensionCapacity?: string;
@@ -152,7 +152,7 @@ export async function fetchProducts(): Promise<Product[]> {
   return parseProducts(html);
 }
 
-export function parseProducts(html: string): Product[] {
+function parseProducts(html: string): Product[] {
   const bootstrap = extractBootstrapData(html);
 
   if (bootstrap && bootstrap.tiles && bootstrap.tiles.length > 0) {
