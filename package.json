@@ -1,0 +1,31 @@
+{
+  "name": "apple-refurb-watcher",
+  "version": "1.0.0",
+  "description": "Monitor Apple's refurbished Mac store (Poland) for listings and price changes",
+  "main": "dist/index.js",
+  "bin": {
+    "apple-refurb-watcher": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node src/index.ts",
+    "start:watch": "ts-node src/index.ts watch",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": ["apple", "refurbished", "mac", "watcher"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "cheerio": "^1.2.0",
+    "cli-table3": "^0.6.5",
+    "node-cron": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/node-cron": "^3.0.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  }
+}
