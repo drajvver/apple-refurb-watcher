@@ -10,9 +10,9 @@ Apple Refurb Watcher is a lightweight Next.js dashboard that monitors Apple's Ce
 
 ## Technology Stack
 
-- **Framework:** Next.js 15 (App Router)
-- **UI Library:** React 19
-- **Language:** TypeScript 5.8 (strict mode enabled)
+- **Framework:** Next.js 16.2 (App Router, Turbopack)
+- **UI Library:** React 19.2
+- **Language:** TypeScript 6.0 (strict mode enabled)
 - **Styling:** Tailwind CSS v4
 - **HTML Parsing:** Cheerio (fallback parsing only)
 - **Runtime:** Node.js 22 (in Docker)
@@ -53,7 +53,7 @@ Apple Refurb Watcher is a lightweight Next.js dashboard that monitors Apple's Ce
 | `npm run dev` | Start Next.js development server (port 3000) |
 | `npm run build` | Create production build |
 | `npm run start` | Start production server |
-| `npm run lint` | Run ESLint via Next.js |
+
 
 There are **no test commands** — the project does not include a test framework.
 
@@ -96,7 +96,7 @@ There are **no test commands** — the project does not include a test framework
 - **Server components:** Default in App Router; do not add `"use client"` to `page.tsx` or `layout.tsx`.
 - **Types:** Prefer explicit interface names (e.g., `Product`, `WatcherChange`) from `@/lib/types`.
 - **Error handling:** Use `try/catch` around filesystem reads/writes and network fetches. Return safe fallbacks (empty arrays, `null`) on failure.
-- **Formatting:** The project relies on Next.js / ESLint defaults. Run `npm run lint` before committing.
+- **Formatting:** The project relies on Next.js / TypeScript defaults.
 
 ## Multi-Country Support
 
