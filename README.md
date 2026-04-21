@@ -13,6 +13,7 @@ A lightweight Next.js dashboard that monitors Apple's Certified Refurbished Mac 
 - **No API keys** — Scrapes data directly from Apple's public storefront. No registration or API keys required.
 - **Docker support** — Run locally with a single `docker run` command.
 - **GitHub Container Registry** — Pre-built images published automatically on release tags.
+- **Bunny.net Magic Containers** — Automatic rolling deployments to Bunny.net's serverless container platform on every release.
 
 ## Quick Start
 
@@ -50,6 +51,29 @@ To fetch data, click the **Refresh** button in the UI.
 docker build -t apple-refurb-watcher .
 docker run -d -p 3000:3000 -v refurb-data:/app/data apple-refurb-watcher
 ```
+
+## Deploy to Bunny.net Magic Containers
+
+This repository includes a GitHub Action that automatically deploys to [Bunny.net Magic Containers](https://bunny.net/magic-containers/) after a successful release build.
+
+### Prerequisites
+
+1. Create an application on [Bunny.net Magic Containers](https://bunny.net/magic-containers/).
+2. Configure the container image to pull from `ghcr.io/YOUR_USERNAME/apple-refurb-watcher`.
+3. Add the following to your GitHub repository (**Settings → Secrets and variables → Actions**):
+
+| Type | Name | Value |
+|------|------|-------|
+| Variable | `BUNNYNET_APP_ID` | Your Bunny.net Magic Containers App ID |
+| Secret | `BUNNYNET_API_KEY` | Your Bunny account API key |
+
+### How it works
+
+When you publish a release (or push a `v*` tag), the workflow:
+1. Builds and publishes the Docker image to GHCR
+2. Automatically triggers a rolling update on Bunny.net Magic Containers
+
+No manual deployment steps are required after the initial setup.
 
 ## How It Works
 

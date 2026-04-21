@@ -62,3 +62,16 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+  deploy:
+    name: Deploy to Bunny.net Magic Containers
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update container image on Bunny.net Magic Containers
+        uses: BunnyWay/actions/container-update-image@main
+        with:
+          app_id: ${{ vars.BUNNYNET_APP_ID }}
+          api_key: ${{ secrets.BUNNYNET_API_KEY }}
+          container: app
+          image_tag: "${{ github.ref_name }}"
