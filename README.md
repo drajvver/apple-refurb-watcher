@@ -61,9 +61,9 @@ docker run -d -p 3000:3000 -v refurb-data:/app/data apple-refurb-watcher
 
 ## Tech Stack
 
-- [Next.js 15](https://nextjs.org/) (App Router)
-- [React 19](https://react.dev/)
-- [TypeScript](https://www.typescriptlang.org/)
+- [Next.js 16.2](https://nextjs.org/) (App Router, Turbopack)
+- [React 19.2](https://react.dev/)
+- [TypeScript 6.0](https://www.typescriptlang.org/)
 - [Tailwind CSS v4](https://tailwindcss.com/)
 - [Cheerio](https://cheerio.js.org/) (HTML fallback parsing)
 

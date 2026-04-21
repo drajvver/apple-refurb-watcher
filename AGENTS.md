@@ -54,7 +54,6 @@ Apple Refurb Watcher is a lightweight Next.js dashboard that monitors Apple's Ce
 | `npm run build` | Create production build |
 | `npm run start` | Start production server |
 
-
 There are **no test commands** — the project does not include a test framework.
 
 ## Runtime Architecture
