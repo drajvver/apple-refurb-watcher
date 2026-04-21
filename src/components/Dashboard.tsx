@@ -40,6 +40,14 @@ const SPEC_KEYS: SpecKey[] = [
   "color",
 ];
 
+const REFRESH_INTERVALS = [
+  { value: 15, label: "15m" },
+  { value: 30, label: "30m" },
+  { value: 60, label: "1h" },
+  { value: 120, label: "2h" },
+  { value: 360, label: "6h" },
+];
+
 function formatPrice(
   amount: number,
   currency: string,
@@ -75,6 +83,12 @@ export default function Dashboard({ initialState }: DashboardProps) {
     {}
   );
 
+  // Auto-refresh state
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(60);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
   const currentData = dataByCountry[selectedCountry] ?? {
     products: [],
     lastChanges: [],
@@ -83,6 +97,38 @@ export default function Dashboard({ initialState }: DashboardProps) {
   };
 
   const countryConfig = getCountryConfig(selectedCountry);
+
+  // Load settings when country changes
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((data) => {
+        const config = data.autoRefresh?.[selectedCountry];
+        if (config) {
+          setAutoRefreshEnabled(config.enabled);
+          setAutoRefreshInterval(config.intervalMinutes);
+        } else {
+          setAutoRefreshEnabled(false);
+          setAutoRefreshInterval(60);
+        }
+      })
+      .catch(() => {
+        // ignore
+      });
+  }, [selectedCountry]);
+
+  // Clock for refresh countdown
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const minutesUntilNext = useMemo(() => {
+    if (!autoRefreshEnabled || !currentData.lastFetchTimestamp) return null;
+    const lastFetch = new Date(currentData.lastFetchTimestamp).getTime();
+    const nextFetch = lastFetch + autoRefreshInterval * 60 * 1000;
+    return Math.max(0, Math.ceil((nextFetch - now) / (60 * 1000)));
+  }, [autoRefreshEnabled, autoRefreshInterval, currentData.lastFetchTimestamp, now]);
 
   useEffect(() => {
     if (!dataByCountry[selectedCountry]) {
@@ -175,6 +221,40 @@ export default function Dashboard({ initialState }: DashboardProps) {
     }
   };
 
+  const saveAutoRefreshSettings = async (
+    enabled: boolean,
+    interval: number
+  ) => {
+    setIsSavingSettings(true);
+    try {
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          country: selectedCountry,
+          config: { enabled, intervalMinutes: interval },
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const handleToggleAutoRefresh = async () => {
+    const next = !autoRefreshEnabled;
+    setAutoRefreshEnabled(next);
+    await saveAutoRefreshSettings(next, autoRefreshInterval);
+  };
+
+  const handleIntervalChange = async (mins: number) => {
+    setAutoRefreshInterval(mins);
+    if (autoRefreshEnabled) {
+      await saveAutoRefreshSettings(true, mins);
+    }
+  };
+
   const stats = {
     total: currentData.products.length,
     new: currentData.lastChanges.filter((c) => c.type === "added").length,
@@ -240,6 +320,11 @@ export default function Dashboard({ initialState }: DashboardProps) {
                       ).toLocaleString(countryConfig.locale)}`
                     : "No data yet"}
                 </p>
+                {autoRefreshEnabled && minutesUntilNext !== null && (
+                  <p className="text-[10px] text-emerald-600 font-medium leading-tight">
+                    Auto-refresh in {minutesUntilNext}m
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -255,6 +340,38 @@ export default function Dashboard({ initialState }: DashboardProps) {
                   </option>
                 ))}
               </select>
+
+              <label
+                className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer select-none"
+                title="Automatically refresh this country's data"
+              >
+                <input
+                  type="checkbox"
+                  checked={autoRefreshEnabled}
+                  onChange={handleToggleAutoRefresh}
+                  disabled={isSavingSettings}
+                  className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900"
+                />
+                <span className="hidden sm:inline">Auto</span>
+              </label>
+
+              {autoRefreshEnabled && (
+                <select
+                  value={autoRefreshInterval}
+                  onChange={(e) =>
+                    handleIntervalChange(Number(e.target.value))
+                  }
+                  disabled={isSavingSettings}
+                  className="text-sm border border-stone-300 rounded-lg px-2 py-2 bg-white text-stone-700 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:border-transparent disabled:opacity-50"
+                >
+                  {REFRESH_INTERVALS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+
               <button
                 onClick={() => refreshCountry(selectedCountry)}
                 disabled={isRefreshing}
@@ -355,7 +472,8 @@ export default function Dashboard({ initialState }: DashboardProps) {
                   change={change}
                   locale={countryConfig.locale}
                 />
-              ))}
+              ))
+              }
             </div>
           </div>
         )}

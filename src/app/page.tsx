@@ -2,6 +2,7 @@ import fs from "fs";
 import Dashboard from "@/components/Dashboard";
 import { getStateFile, DEFAULT_COUNTRY, LEGACY_STATE_FILE } from "@/lib/config";
 import type { Product, WatcherChange } from "@/lib/types";
+import { startScheduler } from "@/lib/scheduler";
 
 interface PageState {
   products: Product[];
@@ -49,6 +50,9 @@ function getInitialState(country: string = DEFAULT_COUNTRY): PageState {
     };
   }
 }
+
+// Start the auto-refresh background scheduler on server startup
+startScheduler();
 
 export const dynamic = "force-dynamic";
 

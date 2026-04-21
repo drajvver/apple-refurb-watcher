@@ -26,18 +26,23 @@ Apple Refurb Watcher is a lightweight Next.js dashboard that monitors Apple's Ce
 │   │   ├── page.tsx                # Server Component — reads initial state from disk
 │   │   ├── globals.css             # Tailwind CSS entrypoint
 │   │   └── api/
-│   │       └── refresh/
-│   │           └── route.ts        # POST endpoint to scrape & detect changes
+│   │       ├── refresh/
+│   │       │   └── route.ts        # POST endpoint to scrape & detect changes
+│   │       └── settings/
+│   │           └── route.ts        # GET/POST auto-refresh settings
 │   ├── components/
 │   │   └── Dashboard.tsx           # Client Component — filters, stats, product grid
 │   └── lib/
 │       ├── config.ts               # Country configs, URLs, file paths
 │       ├── types.ts                # TypeScript interfaces
 │       ├── scraper.ts              # Apple page fetcher + product parser
-│       └── watcher.ts              # State loader/saver + change detector
+│       ├── watcher.ts              # State loader/saver + change detector
+│       ├── settings.ts             # Auto-refresh settings persistence
+│       └── scheduler.ts            # Background auto-refresh timer
 ├── data/
 │   ├── state.json                  # Legacy state file (Poland only, backward compat)
-│   └── state-<country>.json        # Per-country persisted state
+│   ├── state-<country>.json        # Per-country persisted state
+│   └── settings.json               # Auto-refresh configuration
 ├── Dockerfile                      # Multi-stage build (deps → builder → runner)
 ├── next.config.mjs                 # Empty/default Next.js config
 ├── postcss.config.mjs              # Tailwind CSS PostCSS plugin
@@ -74,19 +79,33 @@ There are **no test commands** — the project does not include a test framework
    - Calls `fetchProducts(country)` (scraper) then `fetchAndDetectChanges(...)` (watcher).
    - Returns the current catalog, detected changes, timestamp, and `isFirstRun` flag.
 
-4. **Scraper (`scraper.ts`)**
+4. **API Route (`api/settings/route.ts`)**
+   - `GET` returns the current auto-refresh settings.
+   - `POST` updates per-country auto-refresh config (`enabled`, `intervalMinutes`).
+
+5. **Scraper (`scraper.ts`)**
    - Fetches `https://www.apple.com/<country>/shop/refurbished/mac`.
    - Attempts to extract `window.REFURB_GRID_BOOTSTRAP` embedded JSON first.
    - Falls back to Cheerio-based HTML parsing if JSON is absent.
    - Normalizes prices, specs, and images into a uniform `Product[]` array.
 
-5. **Watcher (`watcher.ts`)**
+6. **Watcher (`watcher.ts`)**
    - Loads previous state from `data/state-<country>.json`.
    - Compares old vs. new products by `partNumber` to detect:
      - `added` — new part numbers
      - `removed` — missing part numbers
      - `price_changed` — same part number, different `refurbPrice`
    - Writes the new state back to disk.
+
+7. **Scheduler (`scheduler.ts`)**
+   - Started once when the server boots (imported from `page.tsx`).
+   - Runs a `setInterval` loop every minute.
+   - For each country with `autoRefresh.enabled`, checks if the interval has elapsed since the last fetch.
+   - Triggers `fetchAndDetectChanges` automatically when due.
+
+8. **Settings (`settings.ts`)**
+   - Reads/writes `data/settings.json`.
+   - Stores per-country `AutoRefreshConfig` objects.
 
 ## Code Style Guidelines
 
@@ -158,6 +177,14 @@ curl -X POST "http://localhost:3000/api/refresh?country=us"
 
 ### Resetting state
 Delete the relevant `data/state-<country>.json` file (or `data/state.json` for legacy Poland). The next refresh will treat it as a first run.
+
+### Configuring auto-refresh
+Use the **Auto** checkbox and interval dropdown in the header for the selected country, or call the settings API directly:
+```bash
+curl -X POST "http://localhost:3000/api/settings" \
+  -H "Content-Type: application/json" \
+  -d '{"country":"us","config":{"enabled":true,"intervalMinutes":30}}'
+```
 
 ### Adding a new spec filter
 The dashboard filters by `model`, `screenSize`, `chip`, `memory`, `storage`, and `color`. These keys are hard-coded in `Dashboard.tsx` (`SPEC_KEYS` and `SPEC_LABELS`). If you add a new spec key, update both arrays and the `ProductSpecs` interface in `src/lib/types.ts`.
