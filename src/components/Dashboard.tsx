@@ -1,20 +1,26 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import type { Product, ProductSpecs, WatcherChange } from "@/lib/types";
+import { COUNTRIES, DEFAULT_COUNTRY, getCountryConfig } from "@/lib/config";
+
+interface CountryState {
+  products: Product[];
+  lastChanges: WatcherChange[];
+  lastFetchTimestamp: string | null;
+  isFirstRun: boolean;
+}
 
 interface DashboardProps {
-  initialState: {
-    products: Product[];
-    lastChanges: WatcherChange[];
-    lastFetchTimestamp: string | null;
-    isFirstRun: boolean;
-  };
+  initialState: CountryState;
 }
 
 type FilterTab = "all" | "new" | "changed";
 
-type SpecKey = keyof Pick<ProductSpecs, "model" | "screenSize" | "chip" | "memory" | "storage" | "color">;
+type SpecKey = keyof Pick<
+  ProductSpecs,
+  "model" | "screenSize" | "chip" | "memory" | "storage" | "color"
+>;
 
 const SPEC_LABELS: Record<SpecKey, string> = {
   model: "Model",
@@ -25,10 +31,21 @@ const SPEC_LABELS: Record<SpecKey, string> = {
   color: "Color",
 };
 
-const SPEC_KEYS: SpecKey[] = ["model", "screenSize", "chip", "memory", "storage", "color"];
+const SPEC_KEYS: SpecKey[] = [
+  "model",
+  "screenSize",
+  "chip",
+  "memory",
+  "storage",
+  "color",
+];
 
-function formatPrice(amount: number, currency: string): string {
-  return new Intl.NumberFormat("pl-PL", {
+function formatPrice(
+  amount: number,
+  currency: string,
+  locale: string
+): string {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency,
     minimumFractionDigits: 0,
@@ -45,17 +62,36 @@ function getProductImageUrl(product: Product): string | null {
 }
 
 export default function Dashboard({ initialState }: DashboardProps) {
-  const [products, setProducts] = useState<Product[]>(initialState.products);
-  const [changes, setChanges] = useState<WatcherChange[]>(
-    initialState.lastChanges
-  );
-  const [timestamp, setTimestamp] = useState<string | null>(
-    initialState.lastFetchTimestamp
-  );
+  const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY);
+  const [dataByCountry, setDataByCountry] = useState<
+    Record<string, CountryState>
+  >({
+    [DEFAULT_COUNTRY]: initialState,
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
-  const [selectedTags, setSelectedTags] = useState<Record<string, Set<string>>>({});
+  const [selectedTags, setSelectedTags] = useState<Record<string, Set<string>>>(
+    {}
+  );
+
+  const currentData = dataByCountry[selectedCountry] ?? {
+    products: [],
+    lastChanges: [],
+    lastFetchTimestamp: null,
+    isFirstRun: true,
+  };
+
+  const countryConfig = getCountryConfig(selectedCountry);
+
+  useEffect(() => {
+    if (!dataByCountry[selectedCountry]) {
+      refreshCountry(selectedCountry);
+    }
+    setActiveFilter("all");
+    setSelectedTags({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCountry]);
 
   const toggleTag = useCallback((key: string, value: string) => {
     setSelectedTags((prev) => {
@@ -82,7 +118,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
     const options: Record<string, string[]> = {};
     for (const key of SPEC_KEYS) {
       const values = new Set<string>();
-      for (const p of products) {
+      for (const p of currentData.products) {
         const v = p.specs[key];
         if (v) values.add(v);
       }
@@ -90,35 +126,48 @@ export default function Dashboard({ initialState }: DashboardProps) {
       if (sorted.length > 0) options[key] = sorted;
     }
     return options;
-  }, [products]);
+  }, [currentData.products]);
 
-  const activeTagCount = Object.values(selectedTags).reduce((sum, s) => sum + s.size, 0);
+  const activeTagCount = Object.values(selectedTags).reduce(
+    (sum, s) => sum + s.size,
+    0
+  );
 
   const addedPartNumbers = new Set(
-    changes
+    currentData.lastChanges
       .filter((c) => c.type === "added")
       .map((c) => c.product.partNumber)
   );
-  const removedProducts = changes.filter((c) => c.type === "removed");
+  const removedProducts = currentData.lastChanges.filter(
+    (c) => c.type === "removed"
+  );
   const changedPartNumbers = new Map(
-    changes
+    currentData.lastChanges
       .filter((c) => c.type === "price_changed")
       .map((c) => [c.product.partNumber, c.previousPrice!])
   );
 
-  const refresh = async () => {
+  const refreshCountry = async (countryCode: string) => {
     setIsRefreshing(true);
     setError(null);
     try {
-      const res = await fetch("/api/refresh", { method: "POST" });
+      const res = await fetch(`/api/refresh?country=${countryCode}`, {
+        method: "POST",
+      });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Failed to fetch products");
       }
       const data = await res.json();
-      setProducts(data.products);
-      setChanges(data.changes);
-      setTimestamp(data.timestamp);
+      setDataByCountry((prev) => ({
+        ...prev,
+        [countryCode]: {
+          products: data.products,
+          lastChanges: data.changes,
+          lastFetchTimestamp: data.timestamp,
+          isFirstRun: data.isFirstRun,
+        },
+      }));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -127,13 +176,16 @@ export default function Dashboard({ initialState }: DashboardProps) {
   };
 
   const stats = {
-    total: products.length,
-    new: changes.filter((c) => c.type === "added").length,
-    removed: changes.filter((c) => c.type === "removed").length,
-    priceChanged: changes.filter((c) => c.type === "price_changed").length,
+    total: currentData.products.length,
+    new: currentData.lastChanges.filter((c) => c.type === "added").length,
+    removed: currentData.lastChanges.filter((c) => c.type === "removed")
+      .length,
+    priceChanged: currentData.lastChanges.filter(
+      (c) => c.type === "price_changed"
+    ).length,
   };
 
-  let filteredProducts = [...products].sort(
+  let filteredProducts = [...currentData.products].sort(
     (a, b) => a.refurbPrice - b.refurbPrice
   );
   if (activeFilter === "new") {
@@ -182,59 +234,75 @@ export default function Dashboard({ initialState }: DashboardProps) {
                   Apple Refurb Watcher
                 </h1>
                 <p className="text-xs text-stone-400">
-                  {timestamp
-                    ? `Updated ${new Date(timestamp).toLocaleString("pl-PL")}`
+                  {currentData.lastFetchTimestamp
+                    ? `Updated ${new Date(
+                        currentData.lastFetchTimestamp
+                      ).toLocaleString(countryConfig.locale)}`
                     : "No data yet"}
                 </p>
               </div>
             </div>
-            <button
-              onClick={refresh}
-              disabled={isRefreshing}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-stone-900 text-white text-sm rounded-lg hover:bg-stone-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-            >
-              {isRefreshing ? (
-                <>
-                  <svg
-                    className="animate-spin h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
+            <div className="flex items-center gap-3">
+              <select
+                value={selectedCountry}
+                onChange={(e) => setSelectedCountry(e.target.value)}
+                disabled={isRefreshing}
+                className="text-sm border border-stone-300 rounded-lg px-3 py-2 bg-white text-stone-700 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:border-transparent disabled:opacity-50"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => refreshCountry(selectedCountry)}
+                disabled={isRefreshing}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-stone-900 text-white text-sm rounded-lg hover:bg-stone-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+              >
+                {isRefreshing ? (
+                  <>
+                    <svg
+                      className="animate-spin h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    Fetching...
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
                       stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
-                  Fetching...
-                </>
-              ) : (
-                <>
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"
-                    />
-                  </svg>
-                  Refresh
-                </>
-              )}
-            </button>
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"
+                      />
+                    </svg>
+                    Refresh
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -246,7 +314,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
           </div>
         )}
 
-        {changes.length > 0 && (
+        {currentData.lastChanges.length > 0 && (
           <div className="mb-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard
               label="Total"
@@ -282,7 +350,11 @@ export default function Dashboard({ initialState }: DashboardProps) {
             </h2>
             <div className="space-y-2">
               {removedProducts.map((change) => (
-                <RemovedProductRow key={change.product.partNumber} change={change} />
+                <RemovedProductRow
+                  key={change.product.partNumber}
+                  change={change}
+                  locale={countryConfig.locale}
+                />
               ))}
             </div>
           </div>
@@ -291,7 +363,11 @@ export default function Dashboard({ initialState }: DashboardProps) {
         <div className="flex items-center gap-2 mb-4">
           {(
             [
-              { key: "all" as FilterTab, label: "All", count: products.length },
+              {
+                key: "all" as FilterTab,
+                label: "All",
+                count: currentData.products.length,
+              },
               { key: "new" as FilterTab, label: "New", count: stats.new },
               {
                 key: "changed" as FilterTab,
@@ -309,8 +385,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                   : "bg-white text-stone-500 hover:bg-stone-100 border border-stone-200"
               }`}
             >
-              {label}{" "}
-              <span className="opacity-60">({count})</span>
+              {label} <span className="opacity-60">({count})</span>
             </button>
           ))}
           {activeTagCount > 0 && (
@@ -369,7 +444,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
               </svg>
             </div>
             <p className="text-stone-400 text-sm">
-              {products.length === 0
+              {currentData.products.length === 0
                 ? "No products yet. Click Refresh to fetch from Apple's refurbished store."
                 : "No products match this filter."}
             </p>
@@ -384,6 +459,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 previousPrice={changedPartNumbers.get(product.partNumber)}
                 selectedTags={selectedTags}
                 onTagClick={toggleTag}
+                locale={countryConfig.locale}
               />
             ))}
           </div>
@@ -394,12 +470,12 @@ export default function Dashboard({ initialState }: DashboardProps) {
         <p className="text-center text-xs text-stone-400">
           Apple Refurb Watcher &middot; Data from{" "}
           <a
-            href="https://www.apple.com/pl/shop/refurbished/mac"
+            href={`https://www.apple.com/${countryConfig.urlPath}/shop/refurbished/mac`}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:underline"
           >
-            Apple Certified Refurbished (Poland)
+            Apple Certified Refurbished ({countryConfig.name})
           </a>
         </p>
       </footer>
@@ -432,12 +508,14 @@ function ProductCard({
   previousPrice,
   selectedTags,
   onTagClick,
+  locale,
 }: {
   product: Product;
   isNew: boolean;
   previousPrice?: number;
   selectedTags: Record<string, Set<string>>;
   onTagClick: (key: string, value: string) => void;
+  locale: string;
 }) {
   const imageUrl = getProductImageUrl(product);
   const specs = product.specs;
@@ -479,7 +557,15 @@ function ProductCard({
         </h3>
 
         <div className="flex flex-wrap gap-1 mb-4">
-          {([["screenSize", specs.screenSize], ["chip", specs.chip], ["memory", specs.memory], ["storage", specs.storage], ["color", specs.color]] as [string, string][])
+          {(
+            [
+              ["screenSize", specs.screenSize],
+              ["chip", specs.chip],
+              ["memory", specs.memory],
+              ["storage", specs.storage],
+              ["color", specs.color],
+            ] as [string, string][]
+          )
             .filter(([, v]) => Boolean(v))
             .map(([key, val]) => {
               const isActive = selectedTags[key]?.has(val) ?? false;
@@ -502,16 +588,16 @@ function ProductCard({
         <div className="flex items-end justify-between">
           <div>
             <div className="text-xl font-bold text-stone-900">
-              {formatPrice(product.refurbPrice, product.currency)}
+              {formatPrice(product.refurbPrice, product.currency, locale)}
             </div>
             {product.originalPrice && (
               <div className="text-sm text-stone-400 line-through">
-                {formatPrice(product.originalPrice, product.currency)}
+                {formatPrice(product.originalPrice, product.currency, locale)}
               </div>
             )}
             {isPriceChanged && (
               <div className="text-xs text-amber-600 font-medium mt-0.5">
-                was {formatPrice(previousPrice, product.currency)}
+                was {formatPrice(previousPrice, product.currency, locale)}
               </div>
             )}
           </div>
@@ -548,7 +634,13 @@ function ProductCard({
   );
 }
 
-function RemovedProductRow({ change }: { change: WatcherChange }) {
+function RemovedProductRow({
+  change,
+  locale,
+}: {
+  change: WatcherChange;
+  locale: string;
+}) {
   const s = change.product.specs;
   const summary = [s.model, s.screenSize, s.chip, s.memory, s.storage, s.color]
     .filter(Boolean)
@@ -565,7 +657,7 @@ function RemovedProductRow({ change }: { change: WatcherChange }) {
         </span>
       </div>
       <span className="text-sm text-stone-400 line-through">
-        {formatPrice(change.product.refurbPrice, change.product.currency)}
+        {formatPrice(change.product.refurbPrice, change.product.currency, locale)}
       </span>
     </div>
   );

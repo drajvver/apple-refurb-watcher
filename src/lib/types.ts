@@ -28,6 +28,7 @@ export interface WatcherChange {
 }
 
 export interface AppState {
+  countryCode: string;
   lastFetchTimestamp: string;
   products: Product[];
   lastChanges: WatcherChange[];

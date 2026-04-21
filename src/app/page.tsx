@@ -1,6 +1,6 @@
 import fs from "fs";
 import Dashboard from "@/components/Dashboard";
-import { STATE_FILE } from "@/lib/config";
+import { getStateFile, DEFAULT_COUNTRY, LEGACY_STATE_FILE } from "@/lib/config";
 import type { Product, WatcherChange } from "@/lib/types";
 
 interface PageState {
@@ -10,9 +10,21 @@ interface PageState {
   isFirstRun: boolean;
 }
 
-function getInitialState(): PageState {
+function getInitialState(country: string = DEFAULT_COUNTRY): PageState {
   try {
-    if (!fs.existsSync(STATE_FILE)) {
+    const file = getStateFile(country);
+    if (!fs.existsSync(file)) {
+      // Fallback to legacy state.json for Poland
+      if (country === DEFAULT_COUNTRY && fs.existsSync(LEGACY_STATE_FILE)) {
+        const raw = fs.readFileSync(LEGACY_STATE_FILE, "utf-8");
+        const state = JSON.parse(raw);
+        return {
+          products: state.products ?? [],
+          lastChanges: state.lastChanges ?? [],
+          lastFetchTimestamp: state.lastFetchTimestamp ?? null,
+          isFirstRun: false,
+        };
+      }
       return {
         products: [],
         lastChanges: [],
@@ -20,7 +32,7 @@ function getInitialState(): PageState {
         isFirstRun: true,
       };
     }
-    const raw = fs.readFileSync(STATE_FILE, "utf-8");
+    const raw = fs.readFileSync(file, "utf-8");
     const state = JSON.parse(raw);
     return {
       products: state.products ?? [],
@@ -41,6 +53,6 @@ function getInitialState(): PageState {
 export const dynamic = "force-dynamic";
 
 export default function Home() {
-  const initialState = getInitialState();
+  const initialState = getInitialState(DEFAULT_COUNTRY);
   return <Dashboard initialState={initialState} />;
 }
