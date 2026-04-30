@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import type { Product, ProductSpecs, WatcherChange } from "@/lib/types";
 import { COUNTRIES, DEFAULT_COUNTRY, getCountryConfig } from "@/lib/config";
+import ThemeToggle from "@/components/ThemeToggle";
 
 interface CountryState {
   products: Product[];
@@ -289,8 +290,8 @@ export default function Dashboard({ initialState }: DashboardProps) {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      <header className="bg-white border-b border-stone-200 sticky top-0 z-10">
+    <div className="min-h-screen bg-stone-50 dark:bg-stone-950">
+      <header className="bg-white dark:bg-stone-900 border-b border-stone-200 dark:border-stone-700 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
@@ -310,10 +311,10 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 </svg>
               </div>
               <div>
-                <h1 className="text-lg font-semibold text-stone-900">
+                <h1 className="text-lg font-semibold text-stone-900 dark:text-stone-100">
                   Apple Refurb Watcher
                 </h1>
-                <p className="text-xs text-stone-400">
+                <p className="text-xs text-stone-400 dark:text-stone-500">
                   {currentData.lastFetchTimestamp
                     ? `Updated ${new Date(
                         currentData.lastFetchTimestamp
@@ -321,7 +322,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                     : "No data yet"}
                 </p>
                 {autoRefreshEnabled && minutesUntilNext !== null && (
-                  <p className="text-[10px] text-emerald-600 font-medium leading-tight">
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium leading-tight">
                     Auto-refresh in {minutesUntilNext}m
                   </p>
                 )}
@@ -332,7 +333,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 value={selectedCountry}
                 onChange={(e) => setSelectedCountry(e.target.value)}
                 disabled={isRefreshing}
-                className="text-sm border border-stone-300 rounded-lg px-3 py-2 bg-white text-stone-700 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:border-transparent disabled:opacity-50"
+                className="text-sm border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-900 dark:focus:ring-stone-100 focus:border-transparent disabled:opacity-50"
               >
                 {COUNTRIES.map((c) => (
                   <option key={c.code} value={c.code}>
@@ -342,7 +343,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
               </select>
 
               <label
-                className="flex items-center gap-1.5 text-sm text-stone-600 cursor-pointer select-none"
+                className="flex items-center gap-1.5 text-sm text-stone-600 dark:text-stone-400 cursor-pointer select-none"
                 title="Automatically refresh this country's data"
               >
                 <input
@@ -350,7 +351,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                   checked={autoRefreshEnabled}
                   onChange={handleToggleAutoRefresh}
                   disabled={isSavingSettings}
-                  className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900"
+                  className="w-4 h-4 rounded border-stone-300 dark:border-stone-600 text-stone-900 dark:text-stone-100 focus:ring-stone-900 dark:focus:ring-stone-100"
                 />
                 <span className="hidden sm:inline">Auto</span>
               </label>
@@ -362,7 +363,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                     handleIntervalChange(Number(e.target.value))
                   }
                   disabled={isSavingSettings}
-                  className="text-sm border border-stone-300 rounded-lg px-2 py-2 bg-white text-stone-700 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:border-transparent disabled:opacity-50"
+                  className="text-sm border border-stone-300 dark:border-stone-600 rounded-lg px-2 py-2 bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-900 dark:focus:ring-stone-100 focus:border-transparent disabled:opacity-50"
                 >
                   {REFRESH_INTERVALS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -372,10 +373,12 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 </select>
               )}
 
+              <ThemeToggle />
+
               <button
                 onClick={() => refreshCountry(selectedCountry)}
                 disabled={isRefreshing}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-stone-900 text-white text-sm rounded-lg hover:bg-stone-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-stone-900 text-white text-sm rounded-lg hover:bg-stone-800 dark:hover:bg-stone-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
               >
                 {isRefreshing ? (
                   <>
@@ -426,7 +429,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+          <div className="mb-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-sm">
             <span className="font-medium">Error:</span> {error}
           </div>
         )}
@@ -436,33 +439,33 @@ export default function Dashboard({ initialState }: DashboardProps) {
             <StatCard
               label="Total"
               value={stats.total}
-              bg="bg-stone-100"
-              text="text-stone-700"
+              bg="bg-stone-100 dark:bg-stone-800"
+              text="text-stone-700 dark:text-stone-300"
             />
             <StatCard
               label="New"
               value={stats.new}
-              bg="bg-emerald-50"
-              text="text-emerald-700"
+              bg="bg-emerald-50 dark:bg-emerald-950"
+              text="text-emerald-700 dark:text-emerald-400"
             />
             <StatCard
               label="Gone"
               value={stats.removed}
-              bg="bg-red-50"
-              text="text-red-700"
+              bg="bg-red-50 dark:bg-red-950"
+              text="text-red-700 dark:text-red-400"
             />
             <StatCard
               label="Price Change"
               value={stats.priceChanged}
-              bg="bg-amber-50"
-              text="text-amber-700"
+              bg="bg-amber-50 dark:bg-amber-950"
+              text="text-amber-700 dark:text-amber-400"
             />
           </div>
         )}
 
         {activeFilter === "all" && removedProducts.length > 0 && (
           <div className="mb-6">
-            <h2 className="text-sm font-semibold text-red-600 uppercase tracking-wide mb-3">
+            <h2 className="text-sm font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide mb-3">
               No Longer Available ({removedProducts.length})
             </h2>
             <div className="space-y-2">
@@ -500,7 +503,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 activeFilter === key
                   ? "bg-stone-900 text-white"
-                  : "bg-white text-stone-500 hover:bg-stone-100 border border-stone-200"
+                  : "bg-white dark:bg-stone-900 text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 border border-stone-200 dark:border-stone-700"
               }`}
             >
               {label} <span className="opacity-60">({count})</span>
@@ -509,7 +512,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
           {activeTagCount > 0 && (
             <button
               onClick={clearTags}
-              className="px-3 py-1.5 rounded-lg text-sm font-medium text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-stone-400 dark:text-stone-500 hover:text-stone-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
             >
               Clear filters
             </button>
@@ -517,10 +520,10 @@ export default function Dashboard({ initialState }: DashboardProps) {
         </div>
 
         {Object.keys(specOptions).length > 0 && (
-          <div className="mb-6 space-y-3 bg-white border border-stone-200 rounded-xl p-4">
+          <div className="mb-6 space-y-3 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl p-4">
             {SPEC_KEYS.filter((k) => specOptions[k]).map((key) => (
               <div key={key} className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-medium text-stone-400 w-16 shrink-0">
+                <span className="text-xs font-medium text-stone-400 dark:text-stone-500 w-16 shrink-0">
                   {SPEC_LABELS[key]}
                 </span>
                 {specOptions[key].map((value) => {
@@ -532,7 +535,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                       className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors ${
                         isSelected
                           ? "bg-stone-900 text-white"
-                          : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                          : "bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-700"
                       }`}
                     >
                       {value}
@@ -546,7 +549,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
 
         {filteredProducts.length === 0 ? (
           <div className="text-center py-20">
-            <div className="text-stone-300 mb-4">
+            <div className="text-stone-300 dark:text-stone-700 mb-4">
               <svg
                 className="mx-auto h-12 w-12"
                 fill="none"
@@ -561,7 +564,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 />
               </svg>
             </div>
-            <p className="text-stone-400 text-sm">
+            <p className="text-stone-400 dark:text-stone-500 text-sm">
               {currentData.products.length === 0
                 ? "No products yet. Click Refresh to fetch from Apple's refurbished store."
                 : "No products match this filter."}
@@ -584,8 +587,8 @@ export default function Dashboard({ initialState }: DashboardProps) {
         )}
       </main>
 
-      <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 mt-8 border-t border-stone-200">
-        <p className="text-center text-xs text-stone-400">
+      <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 mt-8 border-t border-stone-200 dark:border-stone-700">
+        <p className="text-center text-xs text-stone-400 dark:text-stone-500">
           Apple Refurb Watcher &middot; Data from{" "}
           <a
             href={`https://www.apple.com/${countryConfig.urlPath}/shop/refurbished/mac`}
@@ -641,12 +644,12 @@ function ProductCard({
 
   return (
     <div
-      className={`bg-white rounded-xl border overflow-hidden hover:shadow-lg transition-all duration-200 ${
+      className={`bg-white dark:bg-stone-900 rounded-xl border overflow-hidden hover:shadow-lg transition-all duration-200 ${
         isNew
-          ? "border-emerald-200 shadow-emerald-100 shadow-sm"
+          ? "border-emerald-200 dark:border-emerald-800 shadow-emerald-100 dark:shadow-emerald-900/20 shadow-sm"
           : isPriceChanged
-            ? "border-amber-200 shadow-amber-100 shadow-sm"
-            : "border-stone-200"
+            ? "border-amber-200 dark:border-amber-800 shadow-amber-100 dark:shadow-amber-900/20 shadow-sm"
+            : "border-stone-200 dark:border-stone-700"
       }`}
     >
       {(isNew || isPriceChanged) && (
@@ -660,7 +663,7 @@ function ProductCard({
       )}
 
       {imageUrl && (
-        <div className="bg-stone-50 p-6 flex justify-center">
+        <div className="bg-stone-50 dark:bg-stone-950 p-6 flex justify-center">
           <img
             src={imageUrl}
             alt={product.title}
@@ -670,7 +673,7 @@ function ProductCard({
       )}
 
       <div className="p-4">
-        <h3 className="font-semibold text-stone-900 text-sm leading-snug mb-2 line-clamp-2">
+        <h3 className="font-semibold text-stone-900 dark:text-stone-100 text-sm leading-snug mb-2 line-clamp-2">
           {specs.model || product.title}
         </h3>
 
@@ -694,7 +697,7 @@ function ProductCard({
                   className={`inline-block text-xs px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
                     isActive
                       ? "bg-stone-900 text-white"
-                      : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                      : "bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-700"
                   }`}
                 >
                   {val}
@@ -705,22 +708,22 @@ function ProductCard({
 
         <div className="flex items-end justify-between">
           <div>
-            <div className="text-xl font-bold text-stone-900">
+            <div className="text-xl font-bold text-stone-900 dark:text-stone-100">
               {formatPrice(product.refurbPrice, product.currency, locale)}
             </div>
             {product.originalPrice && (
-              <div className="text-sm text-stone-400 line-through">
+              <div className="text-sm text-stone-400 dark:text-stone-500 line-through">
                 {formatPrice(product.originalPrice, product.currency, locale)}
               </div>
             )}
             {isPriceChanged && (
-              <div className="text-xs text-amber-600 font-medium mt-0.5">
+              <div className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-0.5">
                 was {formatPrice(previousPrice, product.currency, locale)}
               </div>
             )}
           </div>
           {product.savingsPercent !== null && (
-            <span className="text-sm font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg">
+            <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2.5 py-1 rounded-lg">
               -{product.savingsPercent}%
             </span>
           )}
@@ -730,7 +733,7 @@ function ProductCard({
           href={product.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-4 flex items-center justify-center gap-1 w-full text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 py-2 rounded-lg transition-colors"
+          className="mt-4 flex items-center justify-center gap-1 w-full text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/50 py-2 rounded-lg transition-colors"
         >
           View on Apple Store
           <svg
@@ -765,16 +768,16 @@ function RemovedProductRow({
     .join(" · ");
 
   return (
-    <div className="flex items-center justify-between bg-white border border-red-100 rounded-lg px-4 py-3">
+    <div className="flex items-center justify-between bg-white dark:bg-stone-900 border border-red-100 dark:border-red-900 rounded-lg px-4 py-3">
       <div className="flex items-center gap-3">
         <span className="text-xs font-bold text-red-500 uppercase tracking-wide">
           Removed
         </span>
-        <span className="text-sm text-stone-600">
+        <span className="text-sm text-stone-600 dark:text-stone-400">
           {summary || change.product.title}
         </span>
       </div>
-      <span className="text-sm text-stone-400 line-through">
+      <span className="text-sm text-stone-400 dark:text-stone-500 line-through">
         {formatPrice(change.product.refurbPrice, change.product.currency, locale)}
       </span>
     </div>
