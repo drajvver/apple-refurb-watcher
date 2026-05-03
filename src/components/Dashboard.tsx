@@ -62,6 +62,10 @@ function formatPrice(
   }).format(amount);
 }
 
+function getNetPrice(grossPrice: number, vatRate: number): number {
+  return grossPrice / (1 + vatRate / 100);
+}
+
 function getProductImageUrl(product: Product): string | null {
   if (!product.image) return null;
   const first = product.image.split(",")[0]?.trim()?.split(" ")[0];
@@ -83,6 +87,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
   const [selectedTags, setSelectedTags] = useState<Record<string, Set<string>>>(
     {}
   );
+  const [showNetPrices, setShowNetPrices] = useState(false);
 
   // Auto-refresh state
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
@@ -373,6 +378,21 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 </select>
               )}
 
+              {countryConfig.vatRate !== null && (
+                <label
+                  className="flex items-center gap-1.5 text-sm text-stone-600 dark:text-stone-400 cursor-pointer select-none"
+                  title={`Show prices excluding ${countryConfig.vatRate}% VAT`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={showNetPrices}
+                    onChange={(e) => setShowNetPrices(e.target.checked)}
+                    className="w-4 h-4 rounded border-stone-300 dark:border-stone-600 text-stone-900 dark:text-stone-100 focus:ring-stone-900 dark:focus:ring-stone-100"
+                  />
+                  <span className="hidden sm:inline">Net</span>
+                </label>
+              )}
+
               <ThemeToggle />
 
               <button
@@ -474,6 +494,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                   key={change.product.partNumber}
                   change={change}
                   locale={countryConfig.locale}
+                  vatRate={showNetPrices ? countryConfig.vatRate : null}
                 />
               ))
               }
@@ -581,6 +602,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 selectedTags={selectedTags}
                 onTagClick={toggleTag}
                 locale={countryConfig.locale}
+                vatRate={showNetPrices ? countryConfig.vatRate : null}
               />
             ))}
           </div>
@@ -630,6 +652,7 @@ function ProductCard({
   selectedTags,
   onTagClick,
   locale,
+  vatRate,
 }: {
   product: Product;
   isNew: boolean;
@@ -637,6 +660,7 @@ function ProductCard({
   selectedTags: Record<string, Set<string>>;
   onTagClick: (key: string, value: string) => void;
   locale: string;
+  vatRate: number | null;
 }) {
   const imageUrl = getProductImageUrl(product);
   const specs = product.specs;
@@ -711,14 +735,30 @@ function ProductCard({
             <div className="text-xl font-bold text-stone-900 dark:text-stone-100">
               {formatPrice(product.refurbPrice, product.currency, locale)}
             </div>
+            {vatRate !== null && (
+              <div className="text-xs text-stone-500 dark:text-stone-400 font-medium">
+                {formatPrice(getNetPrice(product.refurbPrice, vatRate), product.currency, locale)}{" "}
+                <span className="text-stone-400 dark:text-stone-500 font-normal">excl. {vatRate}% VAT</span>
+              </div>
+            )}
             {product.originalPrice && (
               <div className="text-sm text-stone-400 dark:text-stone-500 line-through">
                 {formatPrice(product.originalPrice, product.currency, locale)}
+                {vatRate !== null && (
+                  <span className="no-underline ml-1 text-xs">
+                    ({formatPrice(getNetPrice(product.originalPrice, vatRate), product.currency, locale)} net)
+                  </span>
+                )}
               </div>
             )}
             {isPriceChanged && (
               <div className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-0.5">
                 was {formatPrice(previousPrice, product.currency, locale)}
+                {vatRate !== null && (
+                  <span className="opacity-75 font-normal ml-1">
+                    ({formatPrice(getNetPrice(previousPrice, vatRate), product.currency, locale)} net)
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -758,9 +798,11 @@ function ProductCard({
 function RemovedProductRow({
   change,
   locale,
+  vatRate,
 }: {
   change: WatcherChange;
   locale: string;
+  vatRate: number | null;
 }) {
   const s = change.product.specs;
   const summary = [s.model, s.screenSize, s.chip, s.memory, s.storage, s.color]
@@ -777,9 +819,16 @@ function RemovedProductRow({
           {summary || change.product.title}
         </span>
       </div>
-      <span className="text-sm text-stone-400 dark:text-stone-500 line-through">
-        {formatPrice(change.product.refurbPrice, change.product.currency, locale)}
-      </span>
+      <div className="text-right">
+        <span className="text-sm text-stone-400 dark:text-stone-500 line-through">
+          {formatPrice(change.product.refurbPrice, change.product.currency, locale)}
+        </span>
+        {vatRate !== null && (
+          <div className="text-xs text-stone-400 dark:text-stone-500">
+            {formatPrice(getNetPrice(change.product.refurbPrice, vatRate), change.product.currency, locale)} net
+          </div>
+        )}
+      </div>
     </div>
   );
 }
