@@ -36,6 +36,12 @@ export function getRefurbUrl(country: string): string {
   return `https://www.apple.com/${config.urlPath}/shop/refurbished/mac`;
 }
 
+/** How long a detected change (new, removed, price change) stays visible in the dashboard. */
+export const CHANGE_WINDOW_HOURS = 24;
+
+/** Abort Apple page fetches that take longer than this. */
+export const FETCH_TIMEOUT_MS = 30_000;
+
 export const DATA_DIR = path.join(process.cwd(), "data");
 export const LEGACY_STATE_FILE = path.join(DATA_DIR, "state.json");
 

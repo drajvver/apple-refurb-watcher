@@ -1,32 +1,32 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import type { Product, ProductSpecs, WatcherChange } from "@/lib/types";
-import { COUNTRIES, DEFAULT_COUNTRY, getCountryConfig } from "@/lib/config";
+import type {
+  DashboardState,
+  Product,
+  ProductSpecs,
+  WatcherChange,
+} from "@/lib/types";
+import { COUNTRIES, CHANGE_WINDOW_HOURS, getCountryConfig } from "@/lib/config";
 import ThemeToggle from "@/components/ThemeToggle";
 
-interface CountryState {
-  products: Product[];
-  lastChanges: WatcherChange[];
-  lastFetchTimestamp: string | null;
-  isFirstRun: boolean;
-}
-
 interface DashboardProps {
-  initialState: CountryState;
+  initialCountry: string;
+  initialState: DashboardState;
 }
 
 type FilterTab = "all" | "new" | "changed";
 
 type SpecKey = keyof Pick<
   ProductSpecs,
-  "model" | "screenSize" | "chip" | "memory" | "storage" | "color"
+  "model" | "screenSize" | "chip" | "cores" | "memory" | "storage" | "color"
 >;
 
 const SPEC_LABELS: Record<SpecKey, string> = {
   model: "Model",
   screenSize: "Screen",
   chip: "Chip",
+  cores: "Cores",
   memory: "Memory",
   storage: "Storage",
   color: "Color",
@@ -36,6 +36,7 @@ const SPEC_KEYS: SpecKey[] = [
   "model",
   "screenSize",
   "chip",
+  "cores",
   "memory",
   "storage",
   "color",
@@ -66,6 +67,51 @@ function getNetPrice(grossPrice: number, vatRate: number): number {
   return grossPrice / (1 + vatRate / 100);
 }
 
+const SIZE_UNITS: Record<string, number> = { GB: 1, TB: 1024 };
+
+function specSortValue(value: string): number | null {
+  const match = value.match(/^(\d+(?:\.\d+)?)\s*(GB|TB)?/);
+  if (!match) return null;
+  return parseFloat(match[1]) * (match[2] ? SIZE_UNITS[match[2]] : 1);
+}
+
+const CHIP_TIERS: Record<string, string> = { Pro: "1", Max: "2", Ultra: "3" };
+
+/** Numeric-aware ordering: 8 GB < 16 GB < 512 GB < 1 TB, 13" < 15", M4 < M4 Pro < M4 Max. */
+function compareSpecValues(a: string, b: string): number {
+  const av = specSortValue(a);
+  const bv = specSortValue(b);
+  if (av !== null && bv !== null && av !== bv) return av - bv;
+  const tier = (v: string) =>
+    v.replace(/^([AM]\d+) (Pro|Max|Ultra)$/, (_, chip, t) => `${chip} ${CHIP_TIERS[t]}`);
+  return tier(a).localeCompare(tier(b), undefined, { numeric: true });
+}
+
+function formatAgo(iso: string | undefined, now: number): string | null {
+  if (!iso) return null;
+  const minutes = Math.floor((now - new Date(iso).getTime()) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.floor(minutes / 60)}h ago`;
+}
+
+const REFURB_WORD =
+  /\s*(?:Refurbished|Odnowion[ya]|reconditionnée?|reacondicionad[oa]|ricondizionat[oa])\s*/i;
+
+/** "Refurbished Studio Display - Nano-texture glass" → "Studio Display - Nano-texture glass" */
+function cleanTitle(title: string): string {
+  return title.replace(REFURB_WORD, " ").replace(/\s+,/g, ",").replace(/\s+/g, " ").trim();
+}
+
+async function fetchSavedState(countryCode: string): Promise<DashboardState | null> {
+  try {
+    const res = await fetch(`/api/state?country=${countryCode}`);
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 function getProductImageUrl(product: Product): string | null {
   if (!product.image) return null;
   const first = product.image.split(",")[0]?.trim()?.split(" ")[0];
@@ -74,13 +120,17 @@ function getProductImageUrl(product: Product): string | null {
   return first;
 }
 
-export default function Dashboard({ initialState }: DashboardProps) {
-  const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY);
+export default function Dashboard({
+  initialCountry,
+  initialState,
+}: DashboardProps) {
+  const [selectedCountry, setSelectedCountry] = useState(initialCountry);
   const [dataByCountry, setDataByCountry] = useState<
-    Record<string, CountryState>
-  >({
-    [DEFAULT_COUNTRY]: initialState,
-  });
+    Record<string, DashboardState>
+  >(
+    // A never-fetched country is left out so the effect below fetches it.
+    initialState.lastFetchTimestamp ? { [initialCountry]: initialState } : {}
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
@@ -95,9 +145,9 @@ export default function Dashboard({ initialState }: DashboardProps) {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [now, setNow] = useState(Date.now());
 
-  const currentData = dataByCountry[selectedCountry] ?? {
+  const currentData: DashboardState = dataByCountry[selectedCountry] ?? {
     products: [],
-    lastChanges: [],
+    recentChanges: [],
     lastFetchTimestamp: null,
     isFirstRun: true,
   };
@@ -138,12 +188,35 @@ export default function Dashboard({ initialState }: DashboardProps) {
 
   useEffect(() => {
     if (!dataByCountry[selectedCountry]) {
-      refreshCountry(selectedCountry);
+      loadCountry(selectedCountry);
     }
     setActiveFilter("all");
     setSelectedTags({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCountry]);
+
+  // Pick up refreshes done by the background scheduler without a page reload.
+  useEffect(() => {
+    if (!autoRefreshEnabled) return;
+    const timer = setInterval(async () => {
+      const state = await fetchSavedState(selectedCountry);
+      if (!state) return;
+      setDataByCountry((prev) =>
+        prev[selectedCountry]?.lastFetchTimestamp === state.lastFetchTimestamp
+          ? prev
+          : { ...prev, [selectedCountry]: state }
+      );
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [autoRefreshEnabled, selectedCountry]);
+
+  const selectCountry = (countryCode: string) => {
+    setSelectedCountry(countryCode);
+    // Keep the choice across reloads and make it shareable.
+    const url = new URL(window.location.href);
+    url.searchParams.set("country", countryCode);
+    window.history.replaceState(null, "", url);
+  };
 
   const toggleTag = useCallback((key: string, value: string) => {
     setSelectedTags((prev) => {
@@ -174,7 +247,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
         const v = p.specs[key];
         if (v) values.add(v);
       }
-      const sorted = [...values].sort();
+      const sorted = [...values].sort(compareSpecValues);
       if (sorted.length > 0) options[key] = sorted;
     }
     return options;
@@ -185,19 +258,31 @@ export default function Dashboard({ initialState }: DashboardProps) {
     0
   );
 
+  const recentChanges = currentData.recentChanges;
   const addedPartNumbers = new Set(
-    currentData.lastChanges
+    recentChanges
       .filter((c) => c.type === "added")
       .map((c) => c.product.partNumber)
   );
-  const removedProducts = currentData.lastChanges.filter(
-    (c) => c.type === "removed"
-  );
+  const removedProducts = recentChanges.filter((c) => c.type === "removed");
   const changedPartNumbers = new Map(
-    currentData.lastChanges
+    recentChanges
       .filter((c) => c.type === "price_changed")
       .map((c) => [c.product.partNumber, c.previousPrice!])
   );
+  const detectedAtByPart = new Map(
+    recentChanges.map((c) => [c.product.partNumber, c.detectedAt])
+  );
+
+  // Show saved data if the server has any; scrape only for never-fetched countries.
+  const loadCountry = async (countryCode: string) => {
+    const state = await fetchSavedState(countryCode);
+    if (state?.lastFetchTimestamp) {
+      setDataByCountry((prev) => ({ ...prev, [countryCode]: state }));
+    } else {
+      await refreshCountry(countryCode);
+    }
+  };
 
   const refreshCountry = async (countryCode: string) => {
     setIsRefreshing(true);
@@ -215,7 +300,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
         ...prev,
         [countryCode]: {
           products: data.products,
-          lastChanges: data.changes,
+          recentChanges: data.recentChanges,
           lastFetchTimestamp: data.timestamp,
           isFirstRun: data.isFirstRun,
         },
@@ -263,12 +348,9 @@ export default function Dashboard({ initialState }: DashboardProps) {
 
   const stats = {
     total: currentData.products.length,
-    new: currentData.lastChanges.filter((c) => c.type === "added").length,
-    removed: currentData.lastChanges.filter((c) => c.type === "removed")
-      .length,
-    priceChanged: currentData.lastChanges.filter(
-      (c) => c.type === "price_changed"
-    ).length,
+    new: addedPartNumbers.size,
+    removed: removedProducts.length,
+    priceChanged: changedPartNumbers.size,
   };
 
   let filteredProducts = [...currentData.products].sort(
@@ -319,7 +401,10 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 <h1 className="text-lg font-semibold text-stone-900 dark:text-stone-100">
                   Apple Refurb Watcher
                 </h1>
-                <p className="text-xs text-stone-400 dark:text-stone-500">
+                <p
+                  className="text-xs text-stone-400 dark:text-stone-500"
+                  suppressHydrationWarning
+                >
                   {currentData.lastFetchTimestamp
                     ? `Updated ${new Date(
                         currentData.lastFetchTimestamp
@@ -327,7 +412,10 @@ export default function Dashboard({ initialState }: DashboardProps) {
                     : "No data yet"}
                 </p>
                 {autoRefreshEnabled && minutesUntilNext !== null && (
-                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium leading-tight">
+                  <p
+                    className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium leading-tight"
+                    suppressHydrationWarning
+                  >
                     Auto-refresh in {minutesUntilNext}m
                   </p>
                 )}
@@ -336,7 +424,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
             <div className="flex items-center gap-3">
               <select
                 value={selectedCountry}
-                onChange={(e) => setSelectedCountry(e.target.value)}
+                onChange={(e) => selectCountry(e.target.value)}
                 disabled={isRefreshing}
                 className="text-sm border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-2 bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-900 dark:focus:ring-stone-100 focus:border-transparent disabled:opacity-50"
               >
@@ -454,7 +542,11 @@ export default function Dashboard({ initialState }: DashboardProps) {
           </div>
         )}
 
-        {currentData.lastChanges.length > 0 && (
+        {recentChanges.length > 0 && (
+          <>
+          <p className="mb-2 text-xs font-medium text-stone-400 dark:text-stone-500">
+            Changes in the last {CHANGE_WINDOW_HOURS}h
+          </p>
           <div className="mb-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard
               label="Total"
@@ -481,6 +573,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
               text="text-amber-700 dark:text-amber-400"
             />
           </div>
+          </>
         )}
 
         {activeFilter === "all" && removedProducts.length > 0 && (
@@ -493,6 +586,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 <RemovedProductRow
                   key={change.product.partNumber}
                   change={change}
+                  ago={formatAgo(change.detectedAt, now)}
                   locale={countryConfig.locale}
                   vatRate={showNetPrices ? countryConfig.vatRate : null}
                 />
@@ -599,6 +693,7 @@ export default function Dashboard({ initialState }: DashboardProps) {
                 product={product}
                 isNew={addedPartNumbers.has(product.partNumber)}
                 previousPrice={changedPartNumbers.get(product.partNumber)}
+                changedAgo={formatAgo(detectedAtByPart.get(product.partNumber), now)}
                 selectedTags={selectedTags}
                 onTagClick={toggleTag}
                 locale={countryConfig.locale}
@@ -649,6 +744,7 @@ function ProductCard({
   product,
   isNew,
   previousPrice,
+  changedAgo,
   selectedTags,
   onTagClick,
   locale,
@@ -657,6 +753,7 @@ function ProductCard({
   product: Product;
   isNew: boolean;
   previousPrice?: number;
+  changedAgo: string | null;
   selectedTags: Record<string, Set<string>>;
   onTagClick: (key: string, value: string) => void;
   locale: string;
@@ -683,6 +780,11 @@ function ProductCard({
           }`}
         >
           {isNew ? "New" : "Price Changed"}
+          {changedAgo && (
+            <span className="font-medium normal-case tracking-normal opacity-80" suppressHydrationWarning>
+              {" "}· {changedAgo}
+            </span>
+          )}
         </div>
       )}
 
@@ -697,15 +799,25 @@ function ProductCard({
       )}
 
       <div className="p-4">
-        <h3 className="font-semibold text-stone-900 dark:text-stone-100 text-sm leading-snug mb-2 line-clamp-2">
-          {specs.model || product.title}
+        <h3 className="font-semibold text-stone-900 dark:text-stone-100 text-sm leading-snug line-clamp-2">
+          {specs.model || cleanTitle(product.title)}
         </h3>
+        {specs.model && (
+          <p
+            className="text-xs text-stone-400 dark:text-stone-500 leading-snug mt-0.5 line-clamp-2"
+            title={product.title}
+          >
+            {cleanTitle(product.title)}
+          </p>
+        )}
+        <div className="mb-2" />
 
         <div className="flex flex-wrap gap-1 mb-4">
           {(
             [
               ["screenSize", specs.screenSize],
               ["chip", specs.chip],
+              ["cores", specs.cores ?? ""],
               ["memory", specs.memory],
               ["storage", specs.storage],
               ["color", specs.color],
@@ -797,10 +909,12 @@ function ProductCard({
 
 function RemovedProductRow({
   change,
+  ago,
   locale,
   vatRate,
 }: {
   change: WatcherChange;
+  ago: string | null;
   locale: string;
   vatRate: number | null;
 }) {
@@ -812,8 +926,13 @@ function RemovedProductRow({
   return (
     <div className="flex items-center justify-between bg-white dark:bg-stone-900 border border-red-100 dark:border-red-900 rounded-lg px-4 py-3">
       <div className="flex items-center gap-3">
-        <span className="text-xs font-bold text-red-500 uppercase tracking-wide">
+        <span className="text-xs font-bold text-red-500 uppercase tracking-wide whitespace-nowrap">
           Removed
+          {ago && (
+            <span className="ml-1 font-medium normal-case tracking-normal opacity-80" suppressHydrationWarning>
+              {ago}
+            </span>
+          )}
         </span>
         <span className="text-sm text-stone-600 dark:text-stone-400">
           {summary || change.product.title}

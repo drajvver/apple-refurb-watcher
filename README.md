@@ -9,7 +9,10 @@ A lightweight Next.js dashboard that monitors Apple's Certified Refurbished Mac 
   - **New** products (green badge)
   - **Removed** products (red section)
   - **Price changes** (amber badge with previous price)
-- **Smart filtering** — Filter by Model, Screen size, Chip, Memory, Storage, and Color using clickable tags.
+- **24-hour change history** — Changes stay highlighted for 24 hours, so frequent auto-refreshes don't hide new arrivals.
+- **Smart filtering** — Filter by Model, Screen size, Chip, CPU/GPU cores, Memory, Storage, and Color using clickable tags.
+- **Current lineup** — Recognizes MacBook Neo (A18 Pro), M5-family Macs, Studio Display, and Studio Display XDR. Unknown future models and colors fall back to Apple's own labels.
+- **Background auto-refresh** — Per-country schedule that starts with the server, no open browser tab needed.
 - **No API keys** — Scrapes data directly from Apple's public storefront. No registration or API keys required.
 - **Docker support** — Run locally with a single `docker run` command.
 - **GitHub Container Registry** — Pre-built images published automatically on release tags.
@@ -75,13 +78,17 @@ When you publish a release (or push a `v*` tag), the workflow:
 
 No manual deployment steps are required after the initial setup.
 
+### Testing a pull request
+
+Every pull request against `main` publishes a preview image, `ghcr.io/YOUR_USERNAME/apple-refurb-watcher:pr-<number>`. It is not deployed automatically. To try it, set that tag on the container in Magic Containers. To go back, set the release tag again.
+
 ## How It Works
 
 1. The app fetches Apple's refurbished Mac category page for the selected country.
 2. It extracts structured product data from the page's embedded JSON (with a Cheerio-based HTML fallback).
 3. Products are compared against the locally stored state to detect changes.
-4. Changes and the current catalog are saved to `data/state-<country>.json`.
-5. The dashboard displays the current catalog with change highlights and interactive filters.
+4. Changes and the current catalog are saved to `data/state-<country>.json`. Changes from the last 24 hours are kept as a rolling history.
+5. The dashboard displays the current catalog with change highlights and interactive filters. The selected country is kept in the URL (`/?country=us`).
 
 ## Tech Stack
 

@@ -21,22 +21,27 @@ Apple Refurb Watcher is a lightweight Next.js dashboard that monitors Apple's Ce
 
 ```
 ├── src/
+│   ├── instrumentation.ts          # Starts the scheduler once at server boot
 │   ├── app/
 │   │   ├── layout.tsx              # Root layout (Inter font, metadata)
-│   │   ├── page.tsx                # Server Component — reads initial state from disk
+│   │   ├── page.tsx                # Server Component — reads initial state for ?country from disk
 │   │   ├── globals.css             # Tailwind CSS entrypoint
 │   │   └── api/
 │   │       ├── refresh/
 │   │       │   └── route.ts        # POST endpoint to scrape & detect changes
+│   │       ├── state/
+│   │       │   └── route.ts        # GET saved state for a country (no scraping)
 │   │       └── settings/
 │   │           └── route.ts        # GET/POST auto-refresh settings
 │   ├── components/
-│   │   └── Dashboard.tsx           # Client Component — filters, stats, product grid
+│   │   ├── Dashboard.tsx           # Client Component — filters, stats, product grid
+│   │   └── ThemeToggle.tsx         # Light/dark toggle
 │   └── lib/
-│       ├── config.ts               # Country configs, URLs, file paths
+│       ├── config.ts               # Country configs, URLs, file paths, change window
 │       ├── types.ts                # TypeScript interfaces
 │       ├── scraper.ts              # Apple page fetcher + product parser
-│       ├── watcher.ts              # State loader/saver + change detector
+│       ├── watcher.ts              # State loader/saver + change detector + 24h history
+│       ├── storage.ts              # JSON read / atomic write helpers
 │       ├── settings.ts             # Auto-refresh settings persistence
 │       └── scheduler.ts            # Background auto-refresh timer
 ├── data/
@@ -64,30 +69,34 @@ There are **no test commands** — the project does not include a test framework
 ## Runtime Architecture
 
 1. **Server Component (`page.tsx`)**
-   - Reads the persisted state file from disk at request time.
+   - Reads the `?country=` search param (falls back to `DEFAULT_COUNTRY`).
+   - Loads the persisted state via `getDashboardState(country)` at request time.
    - Exports `dynamic = "force-dynamic"` to prevent static generation.
-   - Passes the initial state to the `Dashboard` client component.
    - Falls back to `data/state.json` for Poland if `data/state-pl.json` is missing (legacy migration).
 
 2. **Client Component (`Dashboard.tsx`)**
    - Displays products, statistics, and interactive tag filters.
+   - Switching country loads saved state from `GET /api/state`; it only scrapes countries that were never fetched.
+   - Keeps the selected country in the URL (`history.replaceState`).
    - Calling `refreshCountry(code)` POSTs to `/api/refresh?country=<code>`.
-   - Updates local React state with the response.
+   - While auto-refresh is on, polls `GET /api/state` every minute to pick up scheduler refreshes.
 
 3. **API Route (`api/refresh/route.ts`)**
    - Validates the country code against the hard-coded `COUNTRIES` list.
    - Calls `fetchProducts(country)` (scraper) then `fetchAndDetectChanges(...)` (watcher).
-   - Returns the current catalog, detected changes, timestamp, and `isFirstRun` flag.
+   - Returns the current catalog, `changes` (this refresh), `recentChanges` (last 24h), timestamp, and `isFirstRun` flag.
 
 4. **API Route (`api/settings/route.ts`)**
    - `GET` returns the current auto-refresh settings.
    - `POST` updates per-country auto-refresh config (`enabled`, `intervalMinutes`).
 
 5. **Scraper (`scraper.ts`)**
-   - Fetches `https://www.apple.com/<country>/shop/refurbished/mac`.
+   - Fetches `https://www.apple.com/<country>/shop/refurbished/mac` (30s timeout).
    - Attempts to extract `window.REFURB_GRID_BOOTSTRAP` embedded JSON first.
-   - Falls back to Cheerio-based HTML parsing if JSON is absent.
+   - Falls back to Cheerio-based HTML parsing if JSON is absent. Throws if neither finds products, so a blocked or redesigned page never wipes the saved state.
    - Normalizes prices, specs, and images into a uniform `Product[]` array.
+   - Model and color names come from `MODEL_NAMES` / `COLOR_NAMES`; unknown keys fall back to Apple's labels in `bootstrap.dictionaries.dimensions`. The `display` model key is split by title (`Studio Display`, `Studio Display XDR`).
+   - Chip (`M5 Pro`, `A18 Pro`) and CPU/GPU cores are parsed from the localized title.
 
 6. **Watcher (`watcher.ts`)**
    - Loads previous state from `data/state-<country>.json`.
@@ -95,11 +104,13 @@ There are **no test commands** — the project does not include a test framework
      - `added` — new part numbers
      - `removed` — missing part numbers
      - `price_changed` — same part number, different `refurbPrice`
-   - Writes the new state back to disk.
+   - Merges them into `recentChanges`, a rolling `CHANGE_WINDOW_HOURS` (24h) history with one entry per product.
+   - Writes the new state back to disk atomically (temp file + rename).
+   - Concurrent refreshes for the same country share one run.
 
 7. **Scheduler (`scheduler.ts`)**
-   - Started once when the server boots (imported from `page.tsx`).
-   - Runs a `setInterval` loop every minute.
+   - Started once when the server boots, from `src/instrumentation.ts`.
+   - Runs immediately, then on a `setInterval` loop every minute. Passes never overlap.
    - For each country with `autoRefresh.enabled`, checks if the interval has elapsed since the last fetch.
    - Triggers `fetchAndDetectChanges` automatically when due.
 
@@ -137,7 +148,7 @@ To add a new country:
 
 State is stored as plain JSON in the `data/` directory (or `/app/data` inside Docker):
 
-- `data/state-<country>.json` — current products, timestamp, and last detected changes
+- `data/state-<country>.json` — current products, timestamp, last detected changes, and 24h `recentChanges`
 - `data/state.json` — legacy file; migrated automatically to `state-pl.json` on first read
 
 No database or external persistence is used.
@@ -156,7 +167,7 @@ docker build -t apple-refurb-watcher .
 docker run -d -p 3000:3000 -v refurb-data:/app/data apple-refurb-watcher
 ```
 
-A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) publishes the image to GHCR on semver tags (`v*`) and GitHub releases.
+A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) publishes the image to GHCR on semver tags (`v*`) and GitHub releases, then deploys it to Bunny.net Magic Containers. Pull requests against `main` also publish preview images tagged `pr-<number>` and `sha-<short>`; these are never deployed automatically.
 
 ## Security Considerations
 
@@ -187,4 +198,7 @@ curl -X POST "http://localhost:3000/api/settings" \
 ```
 
 ### Adding a new spec filter
-The dashboard filters by `model`, `screenSize`, `chip`, `memory`, `storage`, and `color`. These keys are hard-coded in `Dashboard.tsx` (`SPEC_KEYS` and `SPEC_LABELS`). If you add a new spec key, update both arrays and the `ProductSpecs` interface in `src/lib/types.ts`.
+The dashboard filters by `model`, `screenSize`, `chip`, `cores`, `memory`, `storage`, and `color`. These keys are hard-coded in `Dashboard.tsx` (`SPEC_KEYS` and `SPEC_LABELS`). If you add a new spec key, update both arrays and the `ProductSpecs` interface in `src/lib/types.ts`. Make new keys optional in `ProductSpecs`, since saved state from older versions won't have them.
+
+### Supporting a newly launched Apple product
+New models and colors already show up using Apple's own labels. For a clean English name, add the `refurbClearModel` key to `MODEL_NAMES` and a title pattern to `MODEL_PATTERNS` (or the `dimensionColor` key to `COLOR_NAMES`) in `src/lib/scraper.ts`. To find the keys, look at `tiles[].filters.dimensions` in the page's `window.REFURB_GRID_BOOTSTRAP` JSON.
