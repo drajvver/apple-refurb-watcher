@@ -6,6 +6,9 @@ on:
       - 'v*'
   release:
     types: [published]
+  # Preview images (pr-<number>, sha-<short>) for testing before a release. Never auto-deployed.
+  pull_request:
+    branches: [main]
 
 env:
   REGISTRY: ghcr.io
@@ -13,6 +16,8 @@ env:
 
 jobs:
   build-and-push:
+    # Fork PRs get a read-only token and can't push to GHCR.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,6 +49,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=ref,event=tag
+            type=ref,event=pr
+            type=sha,enable=${{ github.event_name == 'pull_request' }}
 
       - name: Build and push Docker image
         id: push
@@ -66,6 +73,8 @@ jobs:
   deploy:
     name: Deploy to Bunny.net Magic Containers
     needs: build-and-push
+    # Only releases roll out automatically; PR images are deployed by hand.
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Update container image on Bunny.net Magic Containers
