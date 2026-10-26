@@ -10,6 +10,8 @@ A lightweight Next.js dashboard that monitors Apple's Certified Refurbished Mac 
   - **Removed** products (red section)
   - **Price changes** (amber badge with previous price)
 - **24-hour change history** — Changes stay highlighted for 24 hours, so frequent auto-refreshes don't hide new arrivals.
+- **Price history** — Every price change is stored in a local SQLite file. Cards show the lowest price seen, a small price chart, and when the product was listed.
+- **Sort and search** — Sort by price, biggest discount, or newest first; search titles and specs (e.g. `M5 Pro 48 GB`).
 - **Smart filtering** — Filter by Model, Screen size, Chip, CPU/GPU cores, Memory, Storage, and Color using clickable tags.
 - **Current lineup** — Recognizes MacBook Neo (A18 Pro), M5-family Macs, Studio Display, and Studio Display XDR. Unknown future models and colors fall back to Apple's own labels.
 - **Background auto-refresh** — Per-country schedule that starts with the server, no open browser tab needed.
@@ -70,11 +72,17 @@ This repository includes a GitHub Action that automatically deploys to [Bunny.ne
 | Variable | `BUNNYNET_APP_ID` | Your Bunny.net Magic Containers App ID |
 | Secret | `BUNNYNET_API_KEY` | Your Bunny account API key |
 
+### Container settings
+
+- **Persistent volume** mounted at `/app/data`. It holds all state and the price history; without it everything resets on each deploy.
+- **Autoscaling: min 1, max 1.** Each instance gets its own volume, so more than one instance would split the data.
+- **Health check:** HTTP GET `/api/health` on port `3000`. It returns the running version, e.g. `{"status":"ok","version":"1.1.0",...}`.
+
 ### How it works
 
 When you publish a release (or push a `v*` tag), the workflow:
 1. Builds and publishes the Docker image to GHCR
-2. Automatically triggers a rolling update on Bunny.net Magic Containers
+2. Triggers a rolling update on Bunny.net Magic Containers (skipped until the variable and secret above are set)
 
 No manual deployment steps are required after the initial setup.
 
@@ -87,7 +95,7 @@ Every pull request against `main` publishes a preview image, `ghcr.io/YOUR_USERN
 1. The app fetches Apple's refurbished Mac category page for the selected country.
 2. It extracts structured product data from the page's embedded JSON (with a Cheerio-based HTML fallback).
 3. Products are compared against the locally stored state to detect changes.
-4. Changes and the current catalog are saved to `data/state-<country>.json`. Changes from the last 24 hours are kept as a rolling history.
+4. Changes and the current catalog are saved to `data/state-<country>.json`. Changes from the last 24 hours are kept as a rolling history, and price changes go into `data/history.db` (SQLite).
 5. The dashboard displays the current catalog with change highlights and interactive filters. The selected country is kept in the URL (`/?country=us`).
 
 ## Tech Stack
@@ -125,7 +133,7 @@ Or create a release via the GitHub UI.
 
 ## Data Storage
 
-The app stores state locally in JSON files inside the `data/` directory (or `/app/data` in Docker). No external database is required.
+The app stores state in JSON files and price history in a SQLite file (`history.db`) inside the `data/` directory (or `/app/data` in Docker). No external database is required; mount a volume at `/app/data` to keep the data across deploys.
 
 ## Disclaimer
 

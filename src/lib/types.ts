@@ -41,10 +41,28 @@ export interface AppState {
   recentChanges?: WatcherChange[];
 }
 
+export interface PricePoint {
+  /** ISO timestamp of the refresh that first saw this price. */
+  at: string;
+  price: number;
+}
+
+/** A product's recorded prices. A point is stored only when the price changes. */
+export interface PriceHistory {
+  firstSeen: string;
+  lowest: number;
+  highest: number;
+  points: PricePoint[];
+}
+
 /** State shape handed to the dashboard, both on first render and from the API. */
 export interface DashboardState {
   products: Product[];
   recentChanges: WatcherChange[];
   lastFetchTimestamp: string | null;
   isFirstRun: boolean;
+  /** Keyed by part number; covers current and recently removed products. */
+  priceHistory: Record<string, PriceHistory>;
+  /** When price tracking began for this country. Products first seen then have an unknown listing date. */
+  trackingSince: string | null;
 }

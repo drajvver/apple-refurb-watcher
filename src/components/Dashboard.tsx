@@ -3,6 +3,8 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import type {
   DashboardState,
+  PriceHistory,
+  PricePoint,
   Product,
   ProductSpecs,
   WatcherChange,
@@ -40,6 +42,15 @@ const SPEC_KEYS: SpecKey[] = [
   "memory",
   "storage",
   "color",
+];
+
+type SortKey = "price-asc" | "price-desc" | "discount" | "newest";
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "price-asc", label: "Price: low to high" },
+  { value: "price-desc", label: "Price: high to low" },
+  { value: "discount", label: "Biggest discount" },
+  { value: "newest", label: "Newest first" },
 ];
 
 const REFRESH_INTERVALS = [
@@ -103,6 +114,19 @@ function cleanTitle(title: string): string {
   return title.replace(REFURB_WORD, " ").replace(/\s+,/g, ",").replace(/\s+/g, " ").trim();
 }
 
+function formatShortDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale, { day: "numeric", month: "short" });
+}
+
+/** Every search word must appear in the title or a spec, e.g. "m5 pro 48 gb". */
+function matchesSearch(product: Product, words: string[]): boolean {
+  if (words.length === 0) return true;
+  const haystack = [product.title, ...Object.values(product.specs)]
+    .join(" ")
+    .toLowerCase();
+  return words.every((word) => haystack.includes(word));
+}
+
 async function fetchSavedState(countryCode: string): Promise<DashboardState | null> {
   try {
     const res = await fetch(`/api/state?country=${countryCode}`);
@@ -138,6 +162,8 @@ export default function Dashboard({
     {}
   );
   const [showNetPrices, setShowNetPrices] = useState(false);
+  const [sortBy, setSortBy] = useState<SortKey>("price-asc");
+  const [search, setSearch] = useState("");
 
   // Auto-refresh state
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
@@ -150,6 +176,8 @@ export default function Dashboard({
     recentChanges: [],
     lastFetchTimestamp: null,
     isFirstRun: true,
+    priceHistory: {},
+    trackingSince: null,
   };
 
   const countryConfig = getCountryConfig(selectedCountry);
@@ -237,7 +265,10 @@ export default function Dashboard({
     });
   }, []);
 
-  const clearTags = useCallback(() => setSelectedTags({}), []);
+  const clearFilters = useCallback(() => {
+    setSelectedTags({});
+    setSearch("");
+  }, []);
 
   const specOptions = useMemo(() => {
     const options: Record<string, string[]> = {};
@@ -303,6 +334,8 @@ export default function Dashboard({
           recentChanges: data.recentChanges,
           lastFetchTimestamp: data.timestamp,
           isFirstRun: data.isFirstRun,
+          priceHistory: data.priceHistory,
+          trackingSince: data.trackingSince,
         },
       }));
     } catch (err) {
@@ -353,9 +386,22 @@ export default function Dashboard({
     priceChanged: changedPartNumbers.size,
   };
 
-  let filteredProducts = [...currentData.products].sort(
-    (a, b) => a.refurbPrice - b.refurbPrice
-  );
+  const { priceHistory } = currentData;
+  // A restock counts as newly listed even if the part number was seen before.
+  const listedAt = (p: Product) =>
+    (addedPartNumbers.has(p.partNumber) && detectedAtByPart.get(p.partNumber)) ||
+    priceHistory[p.partNumber]?.firstSeen ||
+    "";
+  const byPrice = (a: Product, b: Product) => a.refurbPrice - b.refurbPrice;
+  const comparators: Record<SortKey, (a: Product, b: Product) => number> = {
+    "price-asc": byPrice,
+    "price-desc": (a, b) => b.refurbPrice - a.refurbPrice,
+    discount: (a, b) =>
+      (b.savingsPercent ?? -1) - (a.savingsPercent ?? -1) || byPrice(a, b),
+    newest: (a, b) => listedAt(b).localeCompare(listedAt(a)) || byPrice(a, b),
+  };
+
+  let filteredProducts = [...currentData.products].sort(comparators[sortBy]);
   if (activeFilter === "new") {
     filteredProducts = filteredProducts.filter((p) =>
       addedPartNumbers.has(p.partNumber)
@@ -375,6 +421,10 @@ export default function Dashboard({
       return true;
     });
   }
+
+  const searchWords = search.toLowerCase().split(/\s+/).filter(Boolean);
+  filteredProducts = filteredProducts.filter((p) => matchesSearch(p, searchWords));
+  const hasActiveFilters = activeTagCount > 0 || searchWords.length > 0;
 
   return (
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950">
@@ -596,7 +646,7 @@ export default function Dashboard({
           </div>
         )}
 
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
           {(
             [
               {
@@ -624,14 +674,36 @@ export default function Dashboard({
               {label} <span className="opacity-60">({count})</span>
             </button>
           ))}
-          {activeTagCount > 0 && (
+          {hasActiveFilters && (
             <button
-              onClick={clearTags}
+              onClick={clearFilters}
               className="px-3 py-1.5 rounded-lg text-sm font-medium text-stone-400 dark:text-stone-500 hover:text-stone-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
             >
               Clear filters
             </button>
           )}
+          <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search, e.g. M5 Pro 48 GB"
+              aria-label="Search products"
+              className="min-w-0 flex-1 sm:w-56 text-sm border border-stone-300 dark:border-stone-600 rounded-lg px-3 py-1.5 bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 placeholder:text-stone-400 dark:placeholder:text-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-900 dark:focus:ring-stone-100 focus:border-transparent"
+            />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+              aria-label="Sort products"
+              className="text-sm border border-stone-300 dark:border-stone-600 rounded-lg px-2 py-1.5 bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-900 dark:focus:ring-stone-100 focus:border-transparent"
+            >
+              {SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {Object.keys(specOptions).length > 0 && (
@@ -694,6 +766,9 @@ export default function Dashboard({
                 isNew={addedPartNumbers.has(product.partNumber)}
                 previousPrice={changedPartNumbers.get(product.partNumber)}
                 changedAgo={formatAgo(detectedAtByPart.get(product.partNumber), now)}
+                history={priceHistory[product.partNumber]}
+                trackingSince={currentData.trackingSince}
+                now={now}
                 selectedTags={selectedTags}
                 onTagClick={toggleTag}
                 locale={countryConfig.locale}
@@ -745,6 +820,9 @@ function ProductCard({
   isNew,
   previousPrice,
   changedAgo,
+  history,
+  trackingSince,
+  now,
   selectedTags,
   onTagClick,
   locale,
@@ -754,6 +832,9 @@ function ProductCard({
   isNew: boolean;
   previousPrice?: number;
   changedAgo: string | null;
+  history?: PriceHistory;
+  trackingSince: string | null;
+  now: number;
   selectedTags: Record<string, Set<string>>;
   onTagClick: (key: string, value: string) => void;
   locale: string;
@@ -881,6 +962,17 @@ function ProductCard({
           )}
         </div>
 
+        {history && (
+          <PriceHistorySummary
+            history={history}
+            currentPrice={product.refurbPrice}
+            currency={product.currency}
+            trackingSince={trackingSince}
+            locale={locale}
+            now={now}
+          />
+        )}
+
         <a
           href={product.url}
           target="_blank"
@@ -904,6 +996,130 @@ function ProductCard({
         </a>
       </div>
     </div>
+  );
+}
+
+function PriceHistorySummary({
+  history,
+  currentPrice,
+  currency,
+  trackingSince,
+  locale,
+  now,
+}: {
+  history: PriceHistory;
+  currentPrice: number;
+  currency: string;
+  trackingSince: string | null;
+  locale: string;
+  now: number;
+}) {
+  const hasMoved = history.highest > history.lowest;
+  const isLowest = hasMoved && currentPrice <= history.lowest;
+  // Products present when tracking began have no known listing date.
+  const listedAfterTrackingBegan =
+    trackingSince !== null && history.firstSeen > trackingSince;
+  if (!hasMoved && !listedAfterTrackingBegan) return null;
+
+  return (
+    <div className="mt-3 flex items-center gap-3 text-xs leading-snug">
+      {hasMoved && (
+        <PriceSparkline
+          points={history.points}
+          currency={currency}
+          locale={locale}
+          now={now}
+        />
+      )}
+      <div>
+        {hasMoved &&
+          (isLowest ? (
+            <div className="font-medium text-emerald-600 dark:text-emerald-400">
+              Lowest price seen
+            </div>
+          ) : (
+            <div className="text-stone-500 dark:text-stone-400">
+              Lowest seen{" "}
+              <span className="font-medium text-stone-700 dark:text-stone-300">
+                {formatPrice(history.lowest, currency, locale)}
+              </span>
+            </div>
+          ))}
+        {listedAfterTrackingBegan && (
+          <div className="text-stone-400 dark:text-stone-500" suppressHydrationWarning>
+            Listed {formatShortDate(history.firstSeen, locale)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Step line of recorded prices, held until the next change and extended to now. */
+function PriceSparkline({
+  points,
+  currency,
+  locale,
+  now,
+}: {
+  points: PricePoint[];
+  currency: string;
+  locale: string;
+  now: number;
+}) {
+  const width = 88;
+  const height = 28;
+  const pad = 4;
+  const times = points.map((p) => new Date(p.at).getTime());
+  const prices = points.map((p) => p.price);
+  const start = times[0];
+  const end = Math.max(now, times[times.length - 1]);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const x = (t: number) => pad + ((t - start) / (end - start || 1)) * (width - 2 * pad);
+  const y = (price: number) =>
+    max === min ? height / 2 : pad + ((max - price) / (max - min)) * (height - 2 * pad);
+
+  let path = `M ${x(start)} ${y(prices[0])}`;
+  for (let i = 1; i < points.length; i++) {
+    path += ` H ${x(times[i])} V ${y(prices[i])}`;
+  }
+  path += ` H ${x(end)}`;
+  const fmt = (price: number) => formatPrice(price, currency, locale);
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={`Price history: lowest ${fmt(min)}, highest ${fmt(max)}`}
+      className="shrink-0 overflow-visible"
+    >
+      <path
+        d={path}
+        fill="none"
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        className="stroke-stone-300 dark:stroke-stone-600"
+        suppressHydrationWarning
+      />
+      <circle
+        cx={x(end)}
+        cy={y(prices[prices.length - 1])}
+        r={3.5}
+        strokeWidth={2}
+        className="fill-stone-900 dark:fill-stone-100 stroke-white dark:stroke-stone-900"
+        suppressHydrationWarning
+      />
+      {points.map((point, i) => (
+        // Hit targets larger than the line, with a native tooltip per price.
+        <circle key={point.at} cx={x(times[i])} cy={y(prices[i])} r={8} fill="transparent">
+          <title>{`${formatShortDate(point.at, locale)}: ${fmt(point.price)}`}</title>
+        </circle>
+      ))}
+    </svg>
   );
 }
 
