@@ -19,6 +19,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       products: result.currentProducts,
       changes: result.changes,
+      recentChanges: result.recentChanges,
       timestamp: result.timestamp,
       isFirstRun: result.isFirstRun,
     });

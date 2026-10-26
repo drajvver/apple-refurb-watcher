@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ["latin", "latin-ext"] });
 
 export const metadata: Metadata = {
   title: "Apple Refurb Watcher",
-  description: "Monitor Apple's refurbished Mac store (Poland)",
+  description: "Monitor Apple's Certified Refurbished Mac store across countries",
 };
 
 export default function RootLayout({
