@@ -1,11 +1,11 @@
 name: Build and Publish Docker Image
 
 on:
+  # Publishing a GitHub release creates its tag, so this also covers releases
+  # (a separate `release` trigger would build and deploy everything twice).
   push:
     tags:
       - 'v*'
-  release:
-    types: [published]
   # Preview images (pr-<number>, sha-<short>) for testing before a release. Never auto-deployed.
   pull_request:
     branches: [main]
@@ -60,6 +60,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -74,7 +76,8 @@ jobs:
     name: Deploy to Bunny.net Magic Containers
     needs: build-and-push
     # Only releases roll out automatically; PR images are deployed by hand.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Skipped until the BUNNYNET_APP_ID variable and BUNNYNET_API_KEY secret are set.
+    if: startsWith(github.ref, 'refs/tags/') && vars.BUNNYNET_APP_ID != ''
     runs-on: ubuntu-latest
     steps:
       - name: Update container image on Bunny.net Magic Containers
@@ -82,5 +85,5 @@ jobs:
         with:
           app_id: ${{ vars.BUNNYNET_APP_ID }}
           api_key: ${{ secrets.BUNNYNET_API_KEY }}
-          container: app
+          container: ${{ vars.BUNNYNET_CONTAINER_NAME || 'Container-1' }}
           image_tag: "${{ github.ref_name }}"

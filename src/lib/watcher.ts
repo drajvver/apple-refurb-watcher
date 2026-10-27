@@ -1,4 +1,10 @@
-import { Product, WatcherChange, AppState, DashboardState } from "./types";
+import {
+  Product,
+  WatcherChange,
+  AppState,
+  DashboardState,
+  PriceHistory,
+} from "./types";
 import {
   getStateFile,
   DEFAULT_COUNTRY,
@@ -6,6 +12,7 @@ import {
   CHANGE_WINDOW_HOURS,
 } from "./config";
 import { readJson, writeJsonAtomic } from "./storage";
+import { getPriceHistory, recordPrices } from "./history";
 
 export interface RefreshResult {
   timestamp: string;
@@ -15,6 +22,8 @@ export interface RefreshResult {
   recentChanges: WatcherChange[];
   currentProducts: Product[];
   isFirstRun: boolean;
+  priceHistory: Record<string, PriceHistory>;
+  trackingSince: string | null;
 }
 
 export function loadState(country: string = DEFAULT_COUNTRY): AppState | null {
@@ -48,6 +57,18 @@ function getRecentChanges(state: AppState): WatcherChange[] {
   );
 }
 
+/** History for everything the dashboard can show: listed products plus recently removed ones. */
+function getHistoryFor(
+  country: string,
+  products: Product[],
+  recentChanges: WatcherChange[]
+) {
+  return getPriceHistory(country, [
+    ...products.map((p) => p.partNumber),
+    ...recentChanges.map((c) => c.product.partNumber),
+  ]);
+}
+
 export function getDashboardState(country: string = DEFAULT_COUNTRY): DashboardState {
   const state = loadState(country);
   if (!state) {
@@ -56,13 +77,18 @@ export function getDashboardState(country: string = DEFAULT_COUNTRY): DashboardS
       recentChanges: [],
       lastFetchTimestamp: null,
       isFirstRun: true,
+      priceHistory: {},
+      trackingSince: null,
     };
   }
+  const products = state.products ?? [];
+  const recentChanges = getRecentChanges(state);
   return {
-    products: state.products ?? [],
-    recentChanges: getRecentChanges(state),
+    products,
+    recentChanges,
     lastFetchTimestamp: state.lastFetchTimestamp ?? null,
     isFirstRun: false,
+    ...getHistoryFor(country, products, recentChanges),
   };
 }
 
@@ -166,8 +192,16 @@ async function runRefresh(
     recentChanges,
   };
   writeJsonAtomic(getStateFile(country), state);
+  recordPrices(country, currentProducts, timestamp);
 
-  return { timestamp, changes, recentChanges, currentProducts, isFirstRun };
+  return {
+    timestamp,
+    changes,
+    recentChanges,
+    currentProducts,
+    isFirstRun,
+    ...getHistoryFor(country, currentProducts, recentChanges),
+  };
 }
 
 // Shared across module instances (route handlers and the scheduler may be bundled separately).

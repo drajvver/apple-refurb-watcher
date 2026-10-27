@@ -22,6 +22,8 @@ export async function POST(request: Request) {
       recentChanges: result.recentChanges,
       timestamp: result.timestamp,
       isFirstRun: result.isFirstRun,
+      priceHistory: result.priceHistory,
+      trackingSince: result.trackingSince,
     });
   } catch (error) {
     return NextResponse.json(

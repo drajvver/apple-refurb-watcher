@@ -15,7 +15,8 @@ Apple Refurb Watcher is a lightweight Next.js dashboard that monitors Apple's Ce
 - **Language:** TypeScript 6.0 (strict mode enabled)
 - **Styling:** Tailwind CSS v4
 - **HTML Parsing:** Cheerio (fallback parsing only)
-- **Runtime:** Node.js 22 (in Docker)
+- **Price history:** SQLite via Node's built-in `node:sqlite` (no extra dependency)
+- **Runtime:** Node.js 24 (in Docker, Next.js standalone output)
 
 ## Project Structure
 
@@ -31,6 +32,8 @@ Apple Refurb Watcher is a lightweight Next.js dashboard that monitors Apple's Ce
 │   │       │   └── route.ts        # POST endpoint to scrape & detect changes
 │   │       ├── state/
 │   │       │   └── route.ts        # GET saved state for a country (no scraping)
+│   │       ├── health/
+│   │       │   └── route.ts        # GET liveness/startup probe (version, DB status)
 │   │       └── settings/
 │   │           └── route.ts        # GET/POST auto-refresh settings
 │   ├── components/
@@ -41,15 +44,17 @@ Apple Refurb Watcher is a lightweight Next.js dashboard that monitors Apple's Ce
 │       ├── types.ts                # TypeScript interfaces
 │       ├── scraper.ts              # Apple page fetcher + product parser
 │       ├── watcher.ts              # State loader/saver + change detector + 24h history
+│       ├── history.ts              # SQLite price history (record + query, migrations)
 │       ├── storage.ts              # JSON read / atomic write helpers
 │       ├── settings.ts             # Auto-refresh settings persistence
 │       └── scheduler.ts            # Background auto-refresh timer
 ├── data/
 │   ├── state.json                  # Legacy state file (Poland only, backward compat)
 │   ├── state-<country>.json        # Per-country persisted state
+│   ├── history.db                  # SQLite price history (all countries)
 │   └── settings.json               # Auto-refresh configuration
 ├── Dockerfile                      # Multi-stage build (deps → builder → runner)
-├── next.config.mjs                 # Empty/default Next.js config
+├── next.config.mjs                 # `output: "standalone"` for a small Docker image
 ├── postcss.config.mjs              # Tailwind CSS PostCSS plugin
 ├── tsconfig.json                   # Strict TypeScript, path alias `@/*` → `./src/*`
 └── package.json
@@ -106,6 +111,7 @@ There are **no test commands** — the project does not include a test framework
      - `price_changed` — same part number, different `refurbPrice`
    - Merges them into `recentChanges`, a rolling `CHANGE_WINDOW_HOURS` (24h) history with one entry per product.
    - Writes the new state back to disk atomically (temp file + rename).
+   - Records prices in the history database (`recordPrices`) and returns `priceHistory` for listed and recently removed products.
    - Concurrent refreshes for the same country share one run.
 
 7. **Scheduler (`scheduler.ts`)**
@@ -117,6 +123,17 @@ There are **no test commands** — the project does not include a test framework
 8. **Settings (`settings.ts`)**
    - Reads/writes `data/settings.json`.
    - Stores per-country `AutoRefreshConfig` objects.
+
+9. **Price history (`history.ts`)**
+   - SQLite file `data/history.db`, opened once per process with `node:sqlite`.
+   - Table `price_points(country, part_number, price, observed_at)`. A row is written only when a product is first seen or its price changes, so the file stays small.
+   - Schema changes go in the append-only `MIGRATIONS` array (tracked with `PRAGMA user_version`); never edit an existing entry.
+   - Failures are logged and return empty history; they never fail a refresh.
+   - `trackingSince` (first point for a country) tells the UI which products have an unknown listing date.
+
+10. **Health (`api/health/route.ts`)**
+    - Returns `{ status, version, uptimeSeconds, historyDb }`. Always 200 while the server runs; a broken database reports `"degraded"`.
+    - `version` comes from the `APP_VERSION` build arg (set by CI from the git tag).
 
 ## Code Style Guidelines
 
@@ -150,16 +167,16 @@ State is stored as plain JSON in the `data/` directory (or `/app/data` inside Do
 
 - `data/state-<country>.json` — current products, timestamp, last detected changes, and 24h `recentChanges`
 - `data/state.json` — legacy file; migrated automatically to `state-pl.json` on first read
+- `data/history.db` — SQLite price history (see Runtime Architecture → Price history)
 
-No database or external persistence is used.
+No external database or service is used. Everything lives in `data/`, so one volume persists it all.
 
 ## Docker & Deployment
 
 The repository includes a multi-stage `Dockerfile`:
 
-1. `deps` — installs production dependencies
-2. `builder` — installs all dependencies and runs `npm run build`
-3. `runner` — copies only production artifacts, runs as `node` user, exposes port `3000`
+1. `builder` — installs all dependencies and runs `npm run build` (standalone output)
+2. `runner` — `node:24-alpine` with only `.next/standalone` + `.next/static`, runs `node server.js` as the `node` user, exposes port `3000`, `HEALTHCHECK` on `/api/health`
 
 Build locally:
 ```bash
@@ -167,7 +184,13 @@ docker build -t apple-refurb-watcher .
 docker run -d -p 3000:3000 -v refurb-data:/app/data apple-refurb-watcher
 ```
 
-A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) publishes the image to GHCR on semver tags (`v*`) and GitHub releases, then deploys it to Bunny.net Magic Containers. Pull requests against `main` also publish preview images tagged `pr-<number>` and `sha-<short>`; these are never deployed automatically.
+A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) publishes the image to GHCR on semver tags (`v*`, which GitHub releases also create). It deploys to Bunny.net Magic Containers only when the `BUNNYNET_APP_ID` variable and `BUNNYNET_API_KEY` secret are set; otherwise the deploy job is skipped. Pull requests against `main` also publish preview images tagged `pr-<number>` and `sha-<short>`; these are never deployed automatically.
+
+### Magic Containers requirements
+- **Volume** mounted at `/app/data` (JSON state + `history.db`). Without it, all data is lost on every deploy.
+- **Exactly one instance** (autoscaling min = max = 1). Each instance gets its own blank volume, so more instances would split the data.
+- **Probes:** HTTP GET `/api/health` on port 3000 (startup + liveness).
+- Volumes have no backups. Copy `history.db` out if the price history matters.
 
 ## Security Considerations
 
